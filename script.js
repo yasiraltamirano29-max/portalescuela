@@ -1,16 +1,50 @@
 // --- ESTADO INICIAL DE LA APLICACIÓN ---
 // Si ya hay datos guardados en el navegador, los carga; si no, usa datos de ejemplo.
-let datosEscuela = JSON.parse(localStorage.getItem('portalEscolarData')) || {
-    materias: ['Español', 'Matemáticas', 'Ciencias', 'Historia'],
-    alumnos: [
-        { id: 1, nombre: 'Ana Sofía Martínez', notas: { 'Español': 95, 'Matemáticas': 88, 'Ciencias': 92, 'Historia': 90 } },
-        { id: 2, nombre: 'Carlos Eduardo López', notas: { 'Español': 82, 'Matemáticas': 95, 'Ciencias': 85, 'Historia': 88 } }
-    ],
-    horarios: [
-        { hora: '07:00 - 08:00', lunes: 'Español', martes: 'Matemáticas', miercoles: 'Español', jueves: 'Ciencias', viernes: 'Historia' },
-        { hora: '08:00 - 09:00', lunes: 'Matemáticas', martes: 'Ciencias', miercoles: 'Historia', jueves: 'Español', viernes: 'Matemáticas' }
-    ]
+// Variable global para mantener los datos en memoria en tu app
+// Variable para saber si estás en modo profesor
+let esProfesor = false;
+let datosEscuela = {
+    materias: [],
+    alumnos: [],
+    horarios: []
 };
+
+// Función para cargar todos los datos desde Firebase al abrir la app 
+async function cargarDatosDesdeFirebase() {
+    try {
+        // 1. Cargar Materias
+        const snapshotMaterias = await window.getDocs(window.collection(window.db, "materias"));
+        datosEscuela.materias = snapshotMaterias.docs.map(doc => doc.data().nombre || doc.data());
+        
+        // Si la base de datos está vacía por primera vez, puedes insertar los datos por defecto que tenías:
+        if (datosEscuela.materias.length === 0) {
+            datosEscuela.materias = ['Español', 'Matemáticas', 'Ciencias', 'Historia'];
+            // Opcional: guardarlos en Firebase para la próxima
+        }
+
+        // 2. Cargar Alumnos
+        const snapshotAlumnos = await window.getDocs(window.collection(window.db, "alumnos"));
+        datosEscuela.alumnos = snapshotAlumnos.docs.map(doc => ({
+            id: doc.id, // ID único que genera Firebase
+            ...doc.data()
+        }));
+
+        // 3. Cargar Horarios
+        const snapshotHorarios = await window.getDocs(window.collection(window.db, "horarios"));
+        datosEscuela.horarios = snapshotHorarios.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        console.log("Datos cargados correctamente desde la nube:", datosEscuela);
+        
+        // AQUÍ LLAMAS A TU FUNCIÓN QUE PINTA LA PANTALLA (ej: actualizarTablaAlumnos(), mostrarHorarios(), etc.)
+        // actualizarInterfaz();
+
+    } catch (error) {
+        console.error("Error al cargar los datos de Firebase:", error);
+    }
+}
 
 let rolActual = 'maestro'; // 'maestro' o 'alumno'
 
@@ -246,5 +280,33 @@ function renderizarTodo() {
     renderizarTablaNotas();
     renderizarHorarios();
 }
+function activarModoProfesor() {
+    let password = prompt("Introduce la contraseña de maestro:");
+    // CAMBIA "ProfeYasir2026" por la contraseña que tú quieras usar:
+    if (password === "ProfeYasir2026") {
+        esProfesor = true;
+        alert("¡Modo profesor activado! Ahora puedes editar.");
+        mostrarBotonesDeEdicion(); 
+    } else {
+        alert("Contraseña incorrecta.");
+    }
+}
 
+// Función que protege el guardado
+function agregarAlumnoSeguro(nombre, notas) {
+    if (!esProfesor) {
+        alert("Acceso denegado. Solo el profesor puede modificar los datos.");
+        return; // Detiene la función y no deja guardar en Firebase
+    }
+    
+    // Aquí ejecutas tu código normal de Firebase para guardar:
+    // window.addDoc(window.collection(window.db, "alumnos"), { nombre, notas });
+}
+
+function mostrarBotonesDeEdicion() {
+    // Si tienes un botón de "Agregar alumno" o "Eliminar", puedes hacer que aparezcan aquí
+    // Por ejemplo, si tus botones tienen una clase CSS llamada "admin-only":
+    const botonesAdmin = document.querySelectorAll('.admin-only');
+    botonesAdmin.forEach(btn => btn.style.display = 'inline-block');
+}
 renderizarTodo();

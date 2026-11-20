@@ -224,3 +224,9 @@ th {
 body.modo-alumno .maestro-only {
     display: none !important;
 }
+/* ... todos los estilos que ya tenías en tu portal ... */
+
+/* Reglas de acceso para el modo profesor */
+.admin-only {
+    display: none; /* Nadie los ve al entrar por primera vez */
+}

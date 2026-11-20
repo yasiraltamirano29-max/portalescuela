@@ -17,27 +17,28 @@
                 <option value="maestro">👨‍🏫 Modo Maestro (Editar)</option>
                 <option value="alumno">🎓 Modo Alumno (Solo lectura)</option>
             </select>
+            <button type="button" onclick="activarModoProfesor()" style="background: transparent; border: none; cursor: pointer;" title="Acceso Profesor">🔒</button>
         </div>
     </header>
 
     <!-- Navegación por Pestañas -->
     <nav class="tabs">
-        <button class="tab-btn active" data-tab="calificaciones">📊 Alumnos y Notas</button>
-        <button class="tab-btn" data-tab="horarios">🕒 Horarios de Clase</button>
+        <button type="button" class="tab-btn active" data-tab="calificaciones">📊 Alumnos y Notas</button>
+        <button type="button" class="tab-btn" data-tab="horarios">🕒 Horarios de Clase</button>
     </nav>
 
     <main class="container">
 
         <!-- SECCIÓN 1: ALUMNOS, MATERIAS Y NOTAS -->
         <section id="calificaciones" class="tab-content active">
-            
+
             <!-- Panel de control exclusivo para Maestros -->
             <div class="teacher-controls maestro-only">
                 <div class="control-box">
                     <h3>➕ Agregar Alumno</h3>
                     <div class="input-group">
                         <input type="text" id="nuevoAlumnoInput" placeholder="Nombre del alumno...">
-                        <button id="btnAgregarAlumno" class="btn-primary">Agregar</button>
+                        <button type="button" id="btnAgregarAlumno" class="btn-primary">Agregar</button>
                     </div>
                 </div>
 
@@ -45,7 +46,7 @@
                     <h3>📚 Agregar Materia</h3>
                     <div class="input-group">
                         <input type="text" id="nuevaMateriaInput" placeholder="Ej: Español, Matemáticas...">
-                        <button id="btnAgregarMateria" class="btn-secondary">Agregar</button>
+                        <button type="button" id="btnAgregarMateria" class="btn-secondary">Agregar</button>
                     </div>
                 </div>
             </div>
@@ -68,7 +69,7 @@
         <section id="horarios" class="tab-content">
             <div class="section-header">
                 <h2>Horario Semanal / Diario</h2>
-                <button id="btnAgregarHorario" class="btn-primary maestro-only">+ Añadir Bloque Horario</button>
+                <button type="button" id="btnAgregarHorario" class="btn-primary maestro-only">+ Añadir Bloque Horario</button>
             </div>
 
             <div class="table-responsive">
@@ -92,6 +93,37 @@
         </section>
 
     </main>
+
+    <!-- Firebase Firestore -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDzNp3X6_eSqgeWnkrYWEeoSUGGtDOjHe4",
+            authDomain: "portal-escuela-db.firebaseapp.com",
+            projectId: "portal-escuela-db",
+            storageBucket: "portal-escuela-db.firebasestorage.app",
+            messagingSenderId: "386664233353",
+            appId: "1:386664233353:web:87c814559d5ad663bb0958",
+            measurementId: "G-7M67PZSBQS"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Exponer utilidades de Firestore para script.js
+        window.db = db;
+        window.collection = collection;
+        window.getDocs = getDocs;
+        window.addDoc = addDoc;
+        window.deleteDoc = deleteDoc;
+        window.doc = doc;
+        window.updateDoc = updateDoc;
+
+        window.dispatchEvent(new Event("firebaseReady"));
+        console.log("¡Firebase conectado con éxito!");
+    </script>
 
     <script src="script.js"></script>
 </body>
