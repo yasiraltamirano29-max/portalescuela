@@ -1,67 +1,138 @@
 // --- ESTADO INICIAL DE LA APLICACIÓN ---
-// Si ya hay datos guardados en el navegador, los carga; si no, usa datos de ejemplo.
-// Variable global para mantener los datos en memoria en tu app
-// Variable para saber si estás en modo profesor
 let esProfesor = false;
+let rolActual = 'alumno'; // Siempre inicia en modo alumno (solo lectura)
+
 let datosEscuela = {
-    materias: [],
-    alumnos: [],
-    horarios: []
+    materias: [], // Array de objetos: { id: docId, nombre: 'Español' }
+    alumnos: [],  // Array de objetos: { id: docId, nombre: '...', notas: { ... } }
+    horarios: []  // Array de objetos: { id: docId, hora: '...', lunes: '...', ... }
 };
 
-// Función para cargar todos los datos desde Firebase al abrir la app 
+function tieneFirestore() {
+    return Boolean(
+        window.db &&
+        window.collection &&
+        window.getDocs &&
+        window.addDoc &&
+        window.updateDoc &&
+        window.deleteDoc &&
+        window.doc
+    );
+}
+
+// --- CARGA DESDE FIREBASE ---
 async function cargarDatosDesdeFirebase() {
+    if (!tieneFirestore()) return;
+
     try {
         // 1. Cargar Materias
         const snapshotMaterias = await window.getDocs(window.collection(window.db, "materias"));
-        datosEscuela.materias = snapshotMaterias.docs.map(doc => doc.data().nombre || doc.data());
-        
-        // Si la base de datos está vacía por primera vez, puedes insertar los datos por defecto que tenías:
+        datosEscuela.materias = snapshotMaterias.docs.map(d => ({
+            id: d.id,
+            nombre: d.data().nombre || ""
+        })).filter(m => m.nombre);
+
+        // Si está vacía por primera vez, crea las materias base en Firestore
         if (datosEscuela.materias.length === 0) {
-            datosEscuela.materias = ['Español', 'Matemáticas', 'Ciencias', 'Historia'];
-            // Opcional: guardarlos en Firebase para la próxima
+            const iniciales = ['Español', 'Matemáticas', 'Ciencias', 'Historia'];
+            for (const nombreMat of iniciales) {
+                const ref = await window.addDoc(window.collection(window.db, "materias"), { nombre: nombreMat });
+                datosEscuela.materias.push({ id: ref.id, nombre: nombreMat });
+            }
         }
 
         // 2. Cargar Alumnos
         const snapshotAlumnos = await window.getDocs(window.collection(window.db, "alumnos"));
-        datosEscuela.alumnos = snapshotAlumnos.docs.map(doc => ({
-            id: doc.id, // ID único que genera Firebase
-            ...doc.data()
+        datosEscuela.alumnos = snapshotAlumnos.docs.map(d => ({
+            id: d.id,
+            nombre: d.data().nombre || "",
+            notas: d.data().notas || {}
         }));
 
         // 3. Cargar Horarios
         const snapshotHorarios = await window.getDocs(window.collection(window.db, "horarios"));
-        datosEscuela.horarios = snapshotHorarios.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
+        datosEscuela.horarios = snapshotHorarios.docs.map(d => ({
+            id: d.id,
+            hora: d.data().hora || "00:00 - 00:00",
+            lunes: d.data().lunes || "-",
+            martes: d.data().martes || "-",
+            miercoles: d.data().miercoles || "-",
+            jueves: d.data().jueves || "-",
+            viernes: d.data().viernes || "-"
         }));
 
-        console.log("Datos cargados correctamente desde la nube:", datosEscuela);
-        
-        // AQUÍ LLAMAS A TU FUNCIÓN QUE PINTA LA PANTALLA (ej: actualizarTablaAlumnos(), mostrarHorarios(), etc.)
-        // actualizarInterfaz();
-
+        renderizarTodo();
     } catch (error) {
-        console.error("Error al cargar los datos de Firebase:", error);
+        console.error("Error al cargar datos de Firebase:", error);
     }
 }
 
-let rolActual = 'maestro'; // 'maestro' o 'alumno'
+// --- SEGURIDAD Y MODO PROFESOR ---
+function aplicarEstadoRol() {
+    const roleSelect = document.getElementById('roleSelect');
+    const elementosMaestro = document.querySelectorAll('.maestro-only');
 
-// Función para guardar cambios en la memoria del navegador
-function guardarDatos() {
-    localStorage.setItem('portalEscolarData', JSON.stringify(datosEscuela));
+    if (esProfesor && rolActual === 'maestro') {
+        document.body.classList.remove('modo-alumno');
+        if (roleSelect) roleSelect.value = 'maestro';
+        elementosMaestro.forEach(el => {
+            if (el.tagName === 'TH') {
+                el.style.display = 'table-cell';
+            } else if (el.classList.contains('teacher-controls')) {
+                el.style.display = 'flex';
+            } else {
+                el.style.display = 'inline-block';
+            }
+        });
+    } else {
+        rolActual = 'alumno';
+        document.body.classList.add('modo-alumno');
+        if (roleSelect) roleSelect.value = 'alumno';
+        elementosMaestro.forEach(el => {
+            el.style.display = 'none';
+        });
+    }
+}
+
+function activarModoProfesor() {
+    const password = prompt("Introduce la contraseña de maestro:");
+    if (password === "ProfeYasir2026") {
+        esProfesor = true;
+        rolActual = 'maestro';
+        aplicarEstadoRol();
+        renderizarTodo();
+        alert("¡Modo profesor activado! Los cambios ahora se guardan en Firebase.");
+    } else if (password !== null) {
+        alert("Contraseña incorrecta.");
+    }
+}
+
+function verificarPermisoEdicion() {
+    if (!esProfesor || rolActual !== 'maestro') {
+        alert("Acceso denegado. Solo el profesor con contraseña puede editar.");
+        return false;
+    }
+    if (!tieneFirestore()) {
+        alert("Firebase aún no está listo. Espera un momento e inténtalo de nuevo.");
+        return false;
+    }
+    return true;
 }
 
 // --- CAMBIO DE ROL (MAESTRO / ALUMNO) ---
 const roleSelect = document.getElementById('roleSelect');
 roleSelect.addEventListener('change', (e) => {
-    rolActual = e.target.value;
-    if (rolActual === 'alumno') {
-        document.body.classList.add('modo-alumno');
+    if (e.target.value === 'maestro') {
+        if (!esProfesor) {
+            e.target.value = 'alumno';
+            activarModoProfesor();
+            return;
+        }
+        rolActual = 'maestro';
     } else {
-        document.body.classList.remove('modo-alumno');
+        rolActual = 'alumno';
     }
+    aplicarEstadoRol();
     renderizarTodo();
 });
 
@@ -70,119 +141,225 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        
+
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
     });
 });
 
-// --- GESTIÓN DE ALUMNOS Y MATERIAS ---
-document.getElementById('btnAgregarAlumno').addEventListener('click', () => {
+// --- GESTIÓN DE ALUMNOS Y MATERIAS EN FIRESTORE ---
+document.getElementById('btnAgregarAlumno').addEventListener('click', async () => {
+    if (!verificarPermisoEdicion()) return;
+
     const input = document.getElementById('nuevoAlumnoInput');
     const nombre = input.value.trim();
     if (!nombre) return;
 
     const notasIniciales = {};
-    datosEscuela.materias.forEach(mat => notasIniciales[mat] = 0);
-
-    datosEscuela.alumnos.push({
-        id: Date.now(),
-        nombre: nombre,
-        notas: notasIniciales
+    datosEscuela.materias.forEach(mat => {
+        notasIniciales[mat.nombre] = 0;
     });
 
-    input.value = '';
-    guardarDatos();
-    renderizarTablaNotas();
-});
-
-document.getElementById('btnAgregarMateria').addEventListener('click', () => {
-    const input = document.getElementById('nuevaMateriaInput');
-    const materia = input.value.trim();
-    if (!materia || datosEscuela.materias.includes(materia)) return;
-
-    datosEscuela.materias.push(materia);
-    datosEscuela.alumnos.forEach(al => al.notas[materia] = 0);
-
-    input.value = '';
-    guardarDatos();
-    renderizarTablaNotas();
-});
-
-function editarMateria(index) {
-    if (rolActual !== 'maestro') return;
-    const nombreViejo = datosEscuela.materias[index];
-    const nombreNuevo = prompt('Nuevo nombre para la materia:', nombreViejo);
-    
-    if (nombreNuevo && nombreNuevo.trim() !== '' && nombreNuevo !== nombreViejo) {
-        datosEscuela.materias[index] = nombreNuevo.trim();
-        // Actualizar la clave en las notas de cada alumno
-        datosEscuela.alumnos.forEach(al => {
-            al.notas[nombreNuevo.trim()] = al.notas[nombreViejo] || 0;
-            delete al.notas[nombreViejo];
+    try {
+        const docRef = await window.addDoc(window.collection(window.db, "alumnos"), {
+            nombre,
+            notas: notasIniciales
         });
-        guardarDatos();
+
+        datosEscuela.alumnos.push({
+            id: docRef.id,
+            nombre,
+            notas: notasIniciales
+        });
+
+        input.value = '';
         renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al agregar alumno:", error);
+        alert("No se pudo guardar el alumno en Firebase.");
+    }
+});
+
+document.getElementById('btnAgregarMateria').addEventListener('click', async () => {
+    if (!verificarPermisoEdicion()) return;
+
+    const input = document.getElementById('nuevaMateriaInput');
+    const nombreMateria = input.value.trim();
+    if (!nombreMateria) return;
+
+    const yaExiste = datosEscuela.materias.some(m => m.nombre.toLowerCase() === nombreMateria.toLowerCase());
+    if (yaExiste) {
+        alert("Esa materia ya existe.");
+        return;
+    }
+
+    try {
+        const matRef = await window.addDoc(window.collection(window.db, "materias"), {
+            nombre: nombreMateria
+        });
+
+        datosEscuela.materias.push({ id: matRef.id, nombre: nombreMateria });
+
+        // Inicializar nota 0 en cada alumno dentro de Firestore
+        for (const alumno of datosEscuela.alumnos) {
+            alumno.notas[nombreMateria] = 0;
+            await window.updateDoc(window.doc(window.db, "alumnos", alumno.id), {
+                notas: alumno.notas
+            });
+        }
+
+        input.value = '';
+        renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al agregar materia:", error);
+        alert("No se pudo guardar la materia en Firebase.");
+    }
+});
+
+async function editarMateria(index) {
+    if (!verificarPermisoEdicion()) return;
+
+    const materiaObj = datosEscuela.materias[index];
+    if (!materiaObj) return;
+
+    const nombreViejo = materiaObj.nombre;
+    const nombreNuevoInput = prompt('Nuevo nombre para la materia:', nombreViejo);
+    if (!nombreNuevoInput) return;
+
+    const nombreNuevo = nombreNuevoInput.trim();
+    if (!nombreNuevo || nombreNuevo === nombreViejo) return;
+
+    try {
+        await window.updateDoc(window.doc(window.db, "materias", materiaObj.id), {
+            nombre: nombreNuevo
+        });
+        materiaObj.nombre = nombreNuevo;
+
+        for (const alumno of datosEscuela.alumnos) {
+            const notaAnterior = alumno.notas[nombreViejo] ?? 0;
+            alumno.notas[nombreNuevo] = notaAnterior;
+            delete alumno.notas[nombreViejo];
+
+            await window.updateDoc(window.doc(window.db, "alumnos", alumno.id), {
+                notas: alumno.notas
+            });
+        }
+
+        renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al editar materia:", error);
+        alert("No se pudo actualizar la materia en Firebase.");
     }
 }
 
-function eliminarMateria(index) {
-    if (rolActual !== 'maestro') return;
-    const materia = datosEscuela.materias[index];
-    if (confirm(`¿Seguro que deseas eliminar la materia "${materia}"?`)) {
+async function eliminarMateria(index) {
+    if (!verificarPermisoEdicion()) return;
+
+    const materiaObj = datosEscuela.materias[index];
+    if (!materiaObj) return;
+
+    if (!confirm(`¿Seguro que deseas eliminar la materia "${materiaObj.nombre}"?`)) return;
+
+    try {
+        await window.deleteDoc(window.doc(window.db, "materias", materiaObj.id));
+        const nombreEliminado = materiaObj.nombre;
         datosEscuela.materias.splice(index, 1);
-        datosEscuela.alumnos.forEach(al => delete al.notas[materia]);
-        guardarDatos();
+
+        for (const alumno of datosEscuela.alumnos) {
+            if (nombreEliminado in alumno.notas) {
+                delete alumno.notas[nombreEliminado];
+                await window.updateDoc(window.doc(window.db, "alumnos", alumno.id), {
+                    notas: alumno.notas
+                });
+            }
+        }
+
         renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al eliminar materia:", error);
+        alert("No se pudo eliminar la materia en Firebase.");
     }
 }
 
-function editarAlumno(id) {
-    if (rolActual !== 'maestro') return;
-    const alumno = datosEscuela.alumnos.find(a => a.id === id);
-    const nuevoNombre = prompt('Editar nombre del alumno:', alumno.nombre);
-    if (nuevoNombre && nuevoNombre.trim() !== '') {
-        alumno.nombre = nuevoNombre.trim();
-        guardarDatos();
+async function editarAlumno(idDoc) {
+    if (!verificarPermisoEdicion()) return;
+
+    const alumno = datosEscuela.alumnos.find(a => a.id === idDoc);
+    if (!alumno) return;
+
+    const nuevoNombreInput = prompt('Editar nombre del alumno:', alumno.nombre);
+    if (!nuevoNombreInput) return;
+
+    const nuevoNombre = nuevoNombreInput.trim();
+    if (!nuevoNombre || nuevoNombre === alumno.nombre) return;
+
+    try {
+        await window.updateDoc(window.doc(window.db, "alumnos", alumno.id), {
+            nombre: nuevoNombre
+        });
+        alumno.nombre = nuevoNombre;
         renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al editar alumno:", error);
+        alert("No se pudo actualizar el alumno en Firebase.");
     }
 }
 
-function eliminarAlumno(id) {
-    if (rolActual !== 'maestro') return;
-    if (confirm('¿Eliminar a este alumno de la lista?')) {
-        datosEscuela.alumnos = datosEscuela.alumnos.filter(a => a.id !== id);
-        guardarDatos();
+async function eliminarAlumno(idDoc) {
+    if (!verificarPermisoEdicion()) return;
+
+    if (!confirm('¿Eliminar a este alumno de la lista?')) return;
+
+    try {
+        await window.deleteDoc(window.doc(window.db, "alumnos", idDoc));
+        datosEscuela.alumnos = datosEscuela.alumnos.filter(a => a.id !== idDoc);
         renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al eliminar alumno:", error);
+        alert("No se pudo eliminar el alumno en Firebase.");
     }
 }
 
-function actualizarNota(idAlumno, materia, valor) {
-    const alumno = datosEscuela.alumnos.find(a => a.id === idAlumno);
+async function actualizarNota(idDoc, nombreMateria, valor) {
+    if (!verificarPermisoEdicion()) {
+        renderizarTablaNotas();
+        return;
+    }
+
+    const alumno = datosEscuela.alumnos.find(a => a.id === idDoc);
+    if (!alumno) return;
+
     let num = parseFloat(valor);
     if (isNaN(num)) num = 0;
     if (num < 0) num = 0;
     if (num > 100) num = 100;
 
-    alumno.notas[materia] = num;
-    guardarDatos();
-    renderizarTablaNotas();
+    alumno.notas[nombreMateria] = num;
+
+    try {
+        await window.updateDoc(window.doc(window.db, "alumnos", alumno.id), {
+            notas: alumno.notas
+        });
+        renderizarTablaNotas();
+    } catch (error) {
+        console.error("Error al guardar nota:", error);
+        alert("No se pudo guardar la nota en Firebase.");
+    }
 }
 
 function renderizarTablaNotas() {
     const thead = document.getElementById('tablaHead');
     const tbody = document.getElementById('tablaBody');
-    const esMaestro = rolActual === 'maestro';
+    const esMaestro = esProfesor && rolActual === 'maestro';
 
-    // 1. Construir Encabezados (Alumno + Materias + Promedio + Acciones)
     let headHTML = `<tr><th>Alumno</th>`;
-    datosEscuela.materias.forEach((mat, index) => {
+    datosEscuela.materias.forEach((matObj, index) => {
         headHTML += `
             <th>
-                ${mat}
+                ${matObj.nombre}
                 ${esMaestro ? `
-                    <button class="btn-edit" onclick="editarMateria(${index})" title="Renombrar">✏️</button>
-                    <button class="btn-danger" onclick="eliminarMateria(${index})" title="Borrar">×</button>
+                    <button type="button" class="btn-edit" onclick="editarMateria(${index})" title="Renombrar">✏️</button>
+                    <button type="button" class="btn-danger" onclick="eliminarMateria(${index})" title="Borrar">×</button>
                 ` : ''}
             </th>`;
     });
@@ -191,67 +368,106 @@ function renderizarTablaNotas() {
     headHTML += `</tr>`;
     thead.innerHTML = headHTML;
 
-    // 2. Construir Filas de Alumnos
     tbody.innerHTML = '';
     datosEscuela.alumnos.forEach(alumno => {
         let suma = 0;
         let rowHTML = `<tr>
             <td>
                 <strong>${alumno.nombre}</strong>
-                ${esMaestro ? `<button class="btn-edit" onclick="editarAlumno(${alumno.id})">✏️</button>` : ''}
+                ${esMaestro ? `<button type="button" class="btn-edit" onclick="editarAlumno('${alumno.id}')">✏️</button>` : ''}
             </td>`;
 
-        datosEscuela.materias.forEach(mat => {
-            const nota = alumno.notas[mat] || 0;
-            suma += nota;
+        datosEscuela.materias.forEach(matObj => {
+            const nota = alumno.notas[matObj.nombre] ?? 0;
+            suma += Number(nota);
             rowHTML += `
                 <td>
-                    <input type="number" class="nota-input" min="0" max="100" 
-                        value="${nota}" 
+                    <input type="number" class="nota-input" min="0" max="100"
+                        value="${nota}"
                         ${!esMaestro ? 'disabled' : ''}
-                        onchange="actualizarNota(${alumno.id}, '${mat}', this.value)">
+                        onchange="actualizarNota('${alumno.id}', '${matObj.nombre}', this.value)">
                 </td>`;
         });
 
-        const promedio = datosEscuela.materias.length > 0 
-            ? (suma / datosEscuela.materias.length).toFixed(1) 
+        const promedio = datosEscuela.materias.length > 0
+            ? (suma / datosEscuela.materias.length).toFixed(1)
             : '0.0';
 
         rowHTML += `<td><span class="promedio-badge">${promedio}</span></td>`;
-        
+
         if (esMaestro) {
-            rowHTML += `<td><button class="btn-danger" onclick="eliminarAlumno(${alumno.id})">Eliminar</button></td>`;
+            rowHTML += `<td><button type="button" class="btn-danger" onclick="eliminarAlumno('${alumno.id}')">Eliminar</button></td>`;
         }
         rowHTML += `</tr>`;
         tbody.innerHTML += rowHTML;
     });
 }
 
-// --- GESTIÓN DE HORARIOS ---
-document.getElementById('btnAgregarHorario').addEventListener('click', () => {
-    datosEscuela.horarios.push({
-        hora: '00:00 - 00:00', lunes: '-', martes: '-', miercoles: '-', jueves: '-', viernes: '-'
-    });
-    guardarDatos();
-    renderizarHorarios();
+// --- GESTIÓN DE HORARIOS EN FIRESTORE ---
+document.getElementById('btnAgregarHorario').addEventListener('click', async () => {
+    if (!verificarPermisoEdicion()) return;
+
+    const nuevoBloque = {
+        hora: '00:00 - 00:00',
+        lunes: '-',
+        martes: '-',
+        miercoles: '-',
+        jueves: '-',
+        viernes: '-'
+    };
+
+    try {
+        const docRef = await window.addDoc(window.collection(window.db, "horarios"), nuevoBloque);
+        datosEscuela.horarios.push({ id: docRef.id, ...nuevoBloque });
+        renderizarHorarios();
+    } catch (error) {
+        console.error("Error al agregar horario:", error);
+        alert("No se pudo guardar el bloque de horario en Firebase.");
+    }
 });
 
-function actualizarHorario(index, campo, valor) {
-    datosEscuela.horarios[index][campo] = valor;
-    guardarDatos();
+async function actualizarHorario(index, campo, valor) {
+    if (!verificarPermisoEdicion()) {
+        renderizarHorarios();
+        return;
+    }
+
+    const fila = datosEscuela.horarios[index];
+    if (!fila) return;
+
+    fila[campo] = valor;
+
+    try {
+        await window.updateDoc(window.doc(window.db, "horarios", fila.id), {
+            [campo]: valor
+        });
+    } catch (error) {
+        console.error("Error al actualizar horario:", error);
+        alert("No se pudo guardar el cambio de horario en Firebase.");
+    }
 }
 
-function eliminarHorario(index) {
-    if (confirm('¿Eliminar esta fila del horario?')) {
+async function eliminarHorario(index) {
+    if (!verificarPermisoEdicion()) return;
+
+    const fila = datosEscuela.horarios[index];
+    if (!fila) return;
+
+    if (!confirm('¿Eliminar esta fila del horario?')) return;
+
+    try {
+        await window.deleteDoc(window.doc(window.db, "horarios", fila.id));
         datosEscuela.horarios.splice(index, 1);
-        guardarDatos();
         renderizarHorarios();
+    } catch (error) {
+        console.error("Error al eliminar horario:", error);
+        alert("No se pudo eliminar el bloque de horario en Firebase.");
     }
 }
 
 function renderizarHorarios() {
     const tbody = document.getElementById('horariosBody');
-    const esMaestro = rolActual === 'maestro';
+    const esMaestro = esProfesor && rolActual === 'maestro';
     const dias = ['hora', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
 
     tbody.innerHTML = '';
@@ -260,53 +476,34 @@ function renderizarHorarios() {
         dias.forEach(dia => {
             tr += `
                 <td>
-                    <input type="text" class="horario-input" 
-                        value="${fila[dia]}" 
+                    <input type="text" class="horario-input"
+                        value="${fila[dia] ?? ''}"
                         ${!esMaestro ? 'disabled' : ''}
                         onchange="actualizarHorario(${index}, '${dia}', this.value)">
                 </td>`;
         });
 
         if (esMaestro) {
-            tr += `<td><button class="btn-danger" onclick="eliminarHorario(${index})">Borrar</button></td>`;
+            tr += `<td><button type="button" class="btn-danger" onclick="eliminarHorario(${index})">Borrar</button></td>`;
         }
         tr += `</tr>`;
         tbody.innerHTML += tr;
     });
 }
 
-// Inicializar la página
 function renderizarTodo() {
+    aplicarEstadoRol();
     renderizarTablaNotas();
     renderizarHorarios();
 }
-function activarModoProfesor() {
-    let password = prompt("Introduce la contraseña de maestro:");
-    // CAMBIA "ProfeYasir2026" por la contraseña que tú quieras usar:
-    if (password === "ProfeYasir2026") {
-        esProfesor = true;
-        alert("¡Modo profesor activado! Ahora puedes editar.");
-        mostrarBotonesDeEdicion(); 
-    } else {
-        alert("Contraseña incorrecta.");
-    }
+
+window.addEventListener("firebaseReady", () => {
+    cargarDatosDesdeFirebase();
+});
+
+// Por si firebaseReady ya se disparó antes de que terminara de cargarse script.js
+if (tieneFirestore()) {
+    cargarDatosDesdeFirebase();
 }
 
-// Función que protege el guardado
-function agregarAlumnoSeguro(nombre, notas) {
-    if (!esProfesor) {
-        alert("Acceso denegado. Solo el profesor puede modificar los datos.");
-        return; // Detiene la función y no deja guardar en Firebase
-    }
-    
-    // Aquí ejecutas tu código normal de Firebase para guardar:
-    // window.addDoc(window.collection(window.db, "alumnos"), { nombre, notas });
-}
-
-function mostrarBotonesDeEdicion() {
-    // Si tienes un botón de "Agregar alumno" o "Eliminar", puedes hacer que aparezcan aquí
-    // Por ejemplo, si tus botones tienen una clase CSS llamada "admin-only":
-    const botonesAdmin = document.querySelectorAll('.admin-only');
-    botonesAdmin.forEach(btn => btn.style.display = 'inline-block');
-}
 renderizarTodo();
